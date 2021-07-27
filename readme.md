@@ -14,9 +14,8 @@ import (
 qiniuClient := xqiniu.Client{
     AK: TestAK,
     SK: TestSK,
-    PutPolicy: storage.PutPolicy{
-        Scope: "goclub-demo", // 空间名
-    },
+	Domain: TestDomain,
+    Bucket: TestBucket,
     StorageConfig: storage.Config{
         Zone:          &storage.ZoneHuanan,
     },
