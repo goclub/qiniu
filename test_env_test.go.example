@@ -1,0 +1,7 @@
+package xqiniu_test
+
+
+const TestAK = ""
+const TestSK = ""
+const TestDomain = ""
+const TestBucket = ""
