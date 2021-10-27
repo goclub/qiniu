@@ -3,14 +3,18 @@ package xqiniu
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	xerr "github.com/goclub/error"
 	"github.com/qiniu/api.v7/v7/auth"
 	"github.com/qiniu/api.v7/v7/auth/qbox"
 	"github.com/qiniu/api.v7/v7/storage"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,6 +41,13 @@ type Client struct {
 	Domain string
 	Bucket string
 	StorageConfig storage.Config
+	httpClient *http.Client
+}
+func (q Client) getHttpClient() *http.Client {
+	if q.httpClient == nil {
+		q.httpClient = &http.Client{}
+	}
+	return q.httpClient
 }
 type OptionPutPolicy struct {
 	Valid bool
@@ -58,12 +69,13 @@ func (q Client) DefaultPutPolicy() storage.PutPolicy {
 	}
 }
 
-func (q Client) Token(policy storage.PutPolicy) string {
+func (q Client) UploadToken(policy storage.PutPolicy) string {
 	return policy.UploadToken(q.Mac())
 }
 func (q Client) Mac() *qbox.Mac {
 	return qbox.NewMac(q.AK, q.SK)
 }
+// get token q.Credentials().AddToken(auth.TokenQiniu, request)
 func (q Client) Credentials() *auth.Credentials {
 	return auth.New(q.AK,q.SK)
 }
@@ -78,7 +90,7 @@ func (q Client) ResumeUpload(data ResumeUpload) (reply Reply ,err error) {
 		data.PutPolicy.Scope = q.Bucket
 	}
 	uploader := storage.NewResumeUploader(&q.StorageConfig)
-	err = uploader.PutFile(context.Background(), &reply, q.Token(data.PutPolicy), data.QiniuFileKey, data.LocalFilename, &data.RputExtra) ; if err != nil {
+	err = uploader.PutFile(context.Background(), &reply, q.UploadToken(data.PutPolicy), data.QiniuFileKey, data.LocalFilename, &data.RputExtra) ; if err != nil {
 	    return
 	}
 	return
@@ -94,7 +106,7 @@ func (q Client) BytesUpdate(data BytesUpdate)(reply Reply ,err error)  {
 		data.PutPolicy.Scope = q.Bucket
 	}
 	uploader := storage.NewResumeUploader(&q.StorageConfig)
-	err = uploader.Put(context.Background(), &reply, q.Token(data.PutPolicy), data.QiniuFileKey, bytes.NewReader(data.Data), int64(len(data.Data)), &data.RputExtra) ; if err != nil {
+	err = uploader.Put(context.Background(), &reply, q.UploadToken(data.PutPolicy), data.QiniuFileKey, bytes.NewReader(data.Data), int64(len(data.Data)), &data.RputExtra) ; if err != nil {
 	    return
 	}
 	return
@@ -110,7 +122,7 @@ func (q Client) Upload(data Upload) (reply Reply ,err error) {
 		data.PutPolicy.Scope = q.Bucket
 	}
 	uploader := storage.NewFormUploader(&q.StorageConfig)
-	err = uploader.PutFile(context.Background(), &reply, q.Token(data.PutPolicy), data.QiniuFileKey, data.LocalFilename, &data.PutExtra) ; if err != nil {
+	err = uploader.PutFile(context.Background(), &reply, q.UploadToken(data.PutPolicy), data.QiniuFileKey, data.LocalFilename, &data.PutExtra) ; if err != nil {
 	    return
 	}
 	return
@@ -171,3 +183,74 @@ func (q Client) Ping () error {
 	return err
 }
 
+type ImageCensor struct {
+	URL string
+	Scenes []string
+	PutPolicy storage.PutPolicy
+}
+type ImageCensorReply struct {
+	Message string `json:"message"`
+	Code int `json:"code"`
+	Result struct {
+		Scenes struct {
+			Terror struct {
+				Details []struct {
+					Score float64 `json:"score"`
+					Suggestion string `json:"suggestion"`
+					Label string `json:"label"`
+				} `json:"details"`
+				Suggestion string `json:"suggestion"`
+			} `json:"terror"`
+			Politician struct {
+				Suggestion string `json:"suggestion"`
+			} `json:"politician"`
+			Pulp struct {
+				Details []struct {
+					Score float64 `json:"score"`
+					Suggestion string `json:"suggestion"`
+					Label string `json:"label"`
+				} `json:"details"`
+				Suggestion string `json:"suggestion"`
+			} `json:"pulp"`
+		} `json:"scenes"`
+		Suggestion string `json:"suggestion"`
+	} `json:"result"`
+}
+func (q Client) ImageCensor (data ImageCensor) (reply ImageCensorReply, err error)  {
+	httpClient := q.getHttpClient()
+	jsonb, err := json.Marshal(map[string]interface{}{
+		"data": map[string]interface{}{
+			"uri": data.URL,
+		},
+		"params": map[string]interface{}{
+			"scenes": data.Scenes,
+		},
+	}) ; if err != nil {
+	    return
+	}
+	body := bytes.NewReader(jsonb)
+	request, err := http.NewRequest("POST", "https://ai.qiniuapi.com/v3/image/censor", body) ; if err != nil {
+	    return
+	}
+	request.Header.Add("Content-Type", "application/json")
+	err = q.Credentials().AddToken(auth.TokenQiniu, request) ; if err != nil {
+	    return
+	}
+	resp, err := httpClient.Do(request) ; if err != nil {
+	    return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		var data []byte
+		data, err = ioutil.ReadAll(resp.Body) ; if err != nil {
+		    return
+		}
+		err = xerr.New("https://ai.qiniuapi.com/v3/image/censor response error,\nstatus code " + strconv.FormatInt(int64(resp.StatusCode), 10) + "\nbody:"+string(data))
+		return
+	}
+	decoder := json.NewDecoder(resp.Body)
+	err = decoder.Decode(&reply) ; if err != nil {
+	    return
+	}
+	return
+}

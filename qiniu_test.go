@@ -207,3 +207,23 @@ func TestPing(t *testing.T) {
 
 }
 
+func TestClient_ImageCensor(t *testing.T) {
+	qiniuClient := xqiniu.Client{
+		AK: TestAK,
+		SK: TestSK,
+		Domain: TestDomain,
+		Bucket: TestBucket,
+		StorageConfig: storage.Config{
+			Zone:          &storage.ZoneHuanan,
+		},
+	}
+	reply, err := qiniuClient.ImageCensor(xqiniu.ImageCensor{
+		URL:       "https://i.picsum.photos/id/237/536/354.jpg?hmac=i0yVXW1ORpyCZpQ-CknuyV-jbtU7_x9EBQVhvT5aRr0",
+		Scenes:    []string{"pulp", "terror", "politician"},
+		PutPolicy: storage.PutPolicy{},
+	}) ; assert.NoError(t, err)
+	b, err := json.MarshalIndent(reply, "", "  ") ; if err != nil {
+	    return
+	}
+	log.Print(string(b))
+}
