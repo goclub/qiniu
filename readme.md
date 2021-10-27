@@ -94,3 +94,5 @@ qiniuClient := xqiniu.Client{
     log.Print("pfop status :", string(b))
 }
 ```
+
+可以参考 `qiniuClient.ImageCensor` 的实现自行封装一些其他接口 
